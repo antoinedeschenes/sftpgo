@@ -58,6 +58,7 @@ The configuration file contains the following sections:
     - If `proxy_protocol` is set to 1 and we receive a proxy header from an IP that is not in the list then the connection will be accepted and the header will be ignored
     - If `proxy_protocol` is set to 2 and we receive a proxy header from an IP that is not in the list then the connection will be rejected
   - `post_connect_hook`, string. Absolute path to the command to execute or HTTP URL to notify. See [Post connect hook](./post-connect-hook.md) for more details. Leave empty to disable
+  - `failed_login_hook`, string. Absolute path to the command to execute or HTTP URL to notify. See [Failed login hook](./failed-login-hook.md) for more details. Leave empty to disable
 - **"sftpd"**, the configuration for the SFTP server
   - `bind_port`, integer. The port used for serving SFTP requests. Default: 2022
   - `bind_address`, string. Leave blank to listen on all available network interfaces. Default: ""

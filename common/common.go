@@ -286,20 +286,20 @@ func (c *Configuration) ExecutePostConnectHook(remoteAddr net.Addr, protocol str
 	}
 	ip := utils.GetIPFromRemoteAddress(remoteAddr.String())
 	if strings.HasPrefix(c.PostConnectHook, "http") {
-		var url *url.URL
-		url, err := url.Parse(c.PostConnectHook)
+		var hookUrl *url.URL
+		hookUrl, err := url.Parse(c.PostConnectHook)
 		if err != nil {
 			logger.Warn(protocol, "", "Login from ip %#v denied, invalid post connect hook %#v: %v",
 				ip, c.PostConnectHook, err)
 			return err
 		}
 		httpClient := httpclient.GetHTTPClient()
-		q := url.Query()
+		q := hookUrl.Query()
 		q.Add("ip", ip)
 		q.Add("protocol", protocol)
-		url.RawQuery = q.Encode()
+		hookUrl.RawQuery = q.Encode()
 
-		resp, err := httpClient.Get(url.String())
+		resp, err := httpClient.Get(hookUrl.String())
 		if err != nil {
 			logger.Warn(protocol, "", "Login from ip %#v denied, error executing post connect hook: %v", ip, err)
 			return err
@@ -330,51 +330,54 @@ func (c *Configuration) ExecutePostConnectHook(remoteAddr net.Addr, protocol str
 }
 
 // ExecuteFailedLoginHook executes the failed login hook if defined
-func (c *Configuration) ExecuteFailedLoginHook(remoteAddr net.Addr, protocol string) {
+func (c *Configuration) ExecuteFailedLoginHook(username string, remoteAddr net.Addr, method string) {
 	if len(c.FailedLoginHook) == 0 {
 		return
 	}
 	ip := utils.GetIPFromRemoteAddress(remoteAddr.String())
 	if strings.HasPrefix(c.FailedLoginHook, "http") {
-		var url *url.URL
-		url, err := url.Parse(c.FailedLoginHook)
+		var hookUrl *url.URL
+		hookUrl, err := url.Parse(c.FailedLoginHook)
 		if err != nil {
-			logger.Warn(protocol, "", "invalid failed login hook %#v: %v",
+			logger.Warn("login_failed", "", "invalid failed login hook %#v: %v",
 				c.FailedLoginHook, err)
 			return
 		}
 		httpClient := httpclient.GetHTTPClient()
-		q := url.Query()
+		q := hookUrl.Query()
 		q.Add("ip", ip)
-		q.Add("protocol", protocol)
-		url.RawQuery = q.Encode()
+		q.Add("method", method)
+		q.Add("username", username)
+		hookUrl.RawQuery = q.Encode()
 
-		resp, err := httpClient.Get(url.String())
+		resp, err := httpClient.Get(hookUrl.String())
 		if err != nil {
-			logger.Warn(protocol, "", "error executing failed login hook: %v", err)
+			logger.Warn("login_failed", "", "error executing failed login hook: %v", err)
 			return
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			logger.Warn(protocol, "", "failed login hook response code: %v", resp.StatusCode)
+			logger.Warn("login_failed", "", "failed login hook response code: %v", resp.StatusCode)
 			return
 		}
 		return
 	}
 	if !filepath.IsAbs(c.FailedLoginHook) {
 		err := fmt.Errorf("invalid failed login hook %#v", c.FailedLoginHook)
-		logger.Warn(protocol, "", "%v", err)
+		logger.Warn("login_failed", "", "%v", err)
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, c.FailedLoginHook)
 	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("SFTPGO_CONNECTION_IP=%v", ip),
-		fmt.Sprintf("SFTPGO_CONNECTION_PROTOCOL=%v", protocol))
+		fmt.Sprintf("SFTPGO_LOGINFAIL_IP=%v", ip),
+		fmt.Sprintf("SFTPGO_LOGINFAIL_METHOD=%v", method),
+		fmt.Sprintf("SFTPGO_LOGINFAIL_USERNAME=%v", username),
+		)
 	err := cmd.Run()
 	if err != nil {
-		logger.Warn(protocol, "", "failed login hook error: %v", err)
+		logger.Warn("login_failed", "", "failed login hook error: %v", err)
 	}
 	return
 }

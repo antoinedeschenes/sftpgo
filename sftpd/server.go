@@ -655,6 +655,7 @@ func updateLoginMetrics(conn ssh.ConnMetadata, method string, err error) {
 	metrics.AddLoginAttempt(method)
 	if err != nil {
 		logger.ConnectionFailedLog(conn.User(), utils.GetIPFromRemoteAddress(conn.RemoteAddr().String()), method, err.Error())
+		common.Config.ExecuteFailedLoginHook(conn.User(), conn.RemoteAddr(), method)
 	}
 	metrics.AddLoginResult(method, err)
 }
