@@ -232,8 +232,11 @@ type Configuration struct {
 	ProxyAllowed []string `json:"proxy_allowed" mapstructure:"proxy_allowed"`
 	// Absolute path to an external program or an HTTP URL to invoke after a user connects
 	// and before he tries to login. It allows you to reject the connection based on the source
-	// ip address. Leave empty do disable.
+	// ip address. Leave empty to disable.
 	PostConnectHook       string `json:"post_connect_hook" mapstructure:"post_connect_hook"`
+	// Absolute path to an external program or an HTTP URL to invoke after a user fails to login.
+	// It allows you to collect login failures without parsing logs. Leave empty to disable.
+	FailedLoginHook       string `json:"failed_login_hook" mapstructure:"failed_login_hook"`
 	idleTimeoutAsDuration time.Duration
 	idleLoginTimeout      time.Duration
 }
@@ -324,6 +327,56 @@ func (c *Configuration) ExecutePostConnectHook(remoteAddr net.Addr, protocol str
 		logger.Warn(protocol, "", "Login from ip %#v denied, connect hook error: %v", ip, err)
 	}
 	return err
+}
+
+// ExecuteFailedLoginHook executes the failed login hook if defined
+func (c *Configuration) ExecuteFailedLoginHook(remoteAddr net.Addr, protocol string) {
+	if len(c.FailedLoginHook) == 0 {
+		return
+	}
+	ip := utils.GetIPFromRemoteAddress(remoteAddr.String())
+	if strings.HasPrefix(c.FailedLoginHook, "http") {
+		var url *url.URL
+		url, err := url.Parse(c.FailedLoginHook)
+		if err != nil {
+			logger.Warn(protocol, "", "invalid failed login hook %#v: %v",
+				c.FailedLoginHook, err)
+			return
+		}
+		httpClient := httpclient.GetHTTPClient()
+		q := url.Query()
+		q.Add("ip", ip)
+		q.Add("protocol", protocol)
+		url.RawQuery = q.Encode()
+
+		resp, err := httpClient.Get(url.String())
+		if err != nil {
+			logger.Warn(protocol, "", "error executing failed login hook: %v", err)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			logger.Warn(protocol, "", "failed login hook response code: %v", resp.StatusCode)
+			return
+		}
+		return
+	}
+	if !filepath.IsAbs(c.FailedLoginHook) {
+		err := fmt.Errorf("invalid failed login hook %#v", c.FailedLoginHook)
+		logger.Warn(protocol, "", "%v", err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, c.FailedLoginHook)
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("SFTPGO_CONNECTION_IP=%v", ip),
+		fmt.Sprintf("SFTPGO_CONNECTION_PROTOCOL=%v", protocol))
+	err := cmd.Run()
+	if err != nil {
+		logger.Warn(protocol, "", "failed login hook error: %v", err)
+	}
+	return
 }
 
 // ActiveConnections holds the currect active connections with the associated transfers
